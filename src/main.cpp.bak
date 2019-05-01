@@ -1,0 +1,542 @@
+#include <iostream>
+#include <functional>
+#include <array>
+#include <string>
+#include <cmath>
+#include <fstream>
+#include <iomanip>
+#include <cstdint>
+#include <sstream>
+
+#include "constant.hpp"
+
+// 型設定
+using real = long double;
+
+// 球 構造体
+struct sphere {
+    real r;
+    std::array<real, 3> center;
+    unsigned li;
+
+    real collide(std::array<real, 3> d, std::array<real, 3> p) const {
+        real A = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        real B = d[0] * (p[0] - center[0]) + d[1] * (p[1] - center[1]) + d[2] * (p[2] - center[2]);
+        real C = std::pow(p[0] - center[0], 2) + std::pow(p[1] - center[1], 2) + std::pow(p[2] - center[2], 2) - r * r;
+
+        real D = B * B - A * C;
+
+        // 交差しない
+        if (D < 0.0)
+            return -1.0;
+
+        real N = (-B - std::sqrt(D)) / A;
+        real P = (-B + std::sqrt(D)) / A;
+
+        // 交差したり，後ろで交差したり
+        if (N > 0.0 && (N <= P || P < 0.0))
+            return N;
+        else if (P > 0.0 && (P <= N || N < 0.0))
+            return P;
+        else
+            return -1.0;
+    }
+};
+
+// カンマ区切り少数(N列)の分割
+template <unsigned int N>
+std::array<real, N> split(const std::string &str, char delim) {
+    std::array<real, N> elems;
+    unsigned int i = 0;
+    std::string item;
+    for (char ch : str) {
+        if (ch == delim) {
+            if (!item.empty() && i < N) {
+                elems[i] = std::stold(item);
+                i++;
+            }
+            item.clear();
+        }
+        else {
+            item += ch;
+        }
+    }
+    if (!item.empty() && i < N)
+        elems[i] = std::stold(item);
+
+    return elems;
+}
+
+int main(int argc, char* argv[]) {
+    // L : 軌道の数
+    unsigned int L = argc - 1;
+
+    // (2*w+1, 2*h+1) : スクリーンの大きさ
+    unsigned int w = 400;
+    unsigned int h = 300;
+
+    // true なら強制ミンコフスキー
+    bool minkow_flag = true;
+
+    // ながさ
+    real max_lim = 125;
+
+    // おいてある球
+    std::array<sphere, 2> spheres;
+    // 太陽
+    spheres[0].r = little_mzk::Ro<real>;
+    spheres[0].center[0] = spheres[0].center[1] = spheres[0].center[2] = 0.0;
+    spheres[0].li = 2;
+    // なんかよくわからん玉
+    spheres[1].r = 3 * little_mzk::Ro<real>;
+    spheres[1].center[0] = 2.95163e10; spheres[1].center[1] = -1.57699e11; spheres[1].center[2] = 0.0;
+    spheres[1].li = 1;
+    //spheres[1].r = 3 * little_mzk::Ro<real>;
+    //spheres[1].center[0] = 0.0; spheres[1].center[1] = -5.0 * little_mzk::Ro<real>; spheres[1].center[2] = 0.0;
+    //spheres[1].li = 1;
+
+    // O : 観測者の位置
+    std::array<real, 3> O = {0.0, little_mzk::au<real> / 30.0, 0.0};
+    // T : 視線ベクトル ( w を tan(pi/8) で割ることでちょうど横向きには45度になるような距離に)
+    std::array<real, 3> T = {0.0, -1.0 * (std::sqrt(2.0) + 1.0) * w, 0.0};
+
+    // ex : スクリーンの単位ベクトル
+    std::array<real, 3> ex = {1.0, 0.0, 0.0};
+    std::array<real, 3> ey = {0.0, 0.0, 1.0};
+
+    // files[l] : 軌道ファイル名
+    std::vector<std::string> files;
+    files.resize(L);
+    for (unsigned int l = 0; l < L; l++) {
+        files[l] = argv[l + 1];
+        std::cout << l << " : " << files[l] << std::endl;
+    }
+    std::cout << L << std::endl;
+
+    // omega[l] : 有効な軌道か
+    std::vector<bool> omega;
+    omega.resize(L);
+    std::fill(omega.begin(), omega.end(), false);
+    // lambda[l] : 各軌道の観測者と交差する場所での時間
+    std::vector<real> lambda;
+    lambda.resize(L);
+    // theta[l] : 各軌道を曲げるべき角度
+    std::vector<real> theta;
+    theta.resize(L);
+    std::fill(theta.begin(), theta.end(), 0.0);
+    // sigma[l] : 各軌道の観測者の手前の読み込み数 (sigma[l] の回数読み込んで，次に読み込んだやつがちょうど観測者のめのまえ)
+    std::vector<std::int64_t> sigma;
+    sigma.resize(L);
+    std::fill(sigma.begin(), sigma.end(), -1);
+    // V[l] : 観測者視点の軌道の接線方向
+    std::vector<std::array<real, 3>> V;
+    V.resize(L);
+    // phi[l] : V[l] と O との角度
+    std::vector<real> phi;
+    phi.resize(L);
+
+    // 各軌道を曲げるべき角度を計算し，傾けて出力するし，時間もメモ
+    {
+        std::ifstream f;
+        std::string temp;
+        std::array<real, 3> p, n;
+        std::array<real, 3> z;
+
+        sphere oo;
+        oo.r = std::sqrt(O[0] * O[0] + O[1] * O[1] + O[2] * O[2]);
+        oo.center = {0.0, 0.0, 0.0};
+
+        std::int64_t counter = 0;
+
+        // 傾き，始点，操作
+        for (unsigned int l = 0; l < L; l++) {
+            f.open(files[l]);
+
+            // 場所探し
+            std::getline(f, temp);
+            p = split<3>(temp, ',');
+            real pp = std::sqrt(p[0] * p[0] + p[1] * p[1]);
+            counter = 1;
+            bool flag = false;
+            if (oo.r > pp) {
+                std::getline(f, temp);
+                n = split<3>(temp, ',');
+
+                real t = oo.collide({p[0] - n[0], p[1] - n[1], 0.0}, {n[0], n[1], 0.0});
+                z[0] = (p[0] - n[0]) * t + n[0];
+                z[1] = (p[1] - n[1]) * t + n[1];
+                z[2] = (p[2] - n[2]) * t + n[2];
+
+                flag = true;
+            }
+            else {
+                while (std::getline(f, temp)) {
+                    counter++;
+                    n = split<3>(temp, ',');
+                    real np = std::sqrt(n[0] * n[0] + n[1] * n[1]);
+                    if (np < oo.r && oo.r <= pp) {
+                        real t = oo.collide({n[0] - p[0], n[1] - p[1], 0.0}, {p[0], p[1], 0.0});
+                        z[0] = (n[0] - p[0]) * t + p[0];
+                        z[1] = (n[1] - p[1]) * t + p[1];
+                        z[2] = (n[2] - p[2]) * t + p[2];
+
+                        //std::cout << "t : " << t << std::endl;
+                        //std::cout << "np < oo.r <= pp : " << np << " < " << oo.r << " <= " << pp << std::endl;
+                        //std::cout << "p : " << p[0] << ", " << p[1] << ", " << p[2] << std::endl;
+                        //std::cout << "n : " << n[0] << ", " << n[1] << ", " << n[2] << std::endl;
+                        //while (t > 1.0) {
+                        //    t = oo.collide({n[0] - p[0], n[1] - p[1], 0.0}, {p[0], p[1], 0.0});
+                        //}
+
+                        flag = true;
+                        break;
+                    }
+                    else if (np > pp)
+                        break;
+                    p = n;
+                    pp = np;
+                }
+            }
+            if (flag) {
+                    sigma[l] = counter;
+                    omega[l] = true;
+
+                    theta[l] = atan2(z[0], z[1]);
+                    lambda[l] = z[2];
+
+                    std::array<real, 2> A;
+                    A[0] = n[0] - p[0];
+                    A[1] = n[1] - p[1];
+                    V[l][0] = std::cos(theta[l]) * A[0] + std::sin(theta[l]) * A[1];
+                    V[l][1] = -std::sin(theta[l]) * A[0] + std::cos(theta[l]) * A[1];
+                    V[l][2] = 0.0;
+
+                    phi[l] = atan2(V[l][0], -V[l][1]);
+            }
+            f.close();
+
+            // かたむけて出力
+            f.open(files[l]);
+            //std::ofstream of(files[l] + std::string(".txt"));
+            while (std::getline(f, temp)) {
+                std::array<real, 3> kkk = split<3>(temp, ',');
+                std::array<real, 2> kkkk;
+                if (omega[l]) {
+                    kkkk[0] = std::cos(theta[l]) * kkk[0] + std::sin(theta[l]) * kkk[1];
+                    kkkk[1] = -std::sin(theta[l]) * kkk[0] + std::cos(theta[l]) * kkk[1];
+                    //of << kkkk[0] << "," << kkkk[1] << std::endl;
+                }
+            }
+            //of.close();
+            f.close();
+        }
+    }
+
+    // ちょっと theta 出力
+    for (unsigned int l = 0; l < theta.size(); l++) {
+        std::cout << files[l] << std::endl;
+        std::cout << "   " << theta[l] << std::endl;
+    }
+
+    // ちょっと phi 出力
+    std::ofstream PHI("phi.txt");
+    for (unsigned int l = 0; l < phi.size(); l++) {
+        PHI << phi[l] << std::endl;
+    }
+    PHI.close();
+
+    // 視線方向に近いやつ探す
+    {
+        real n, p;
+        // 距離
+        std::vector<std::vector<std::pair<real, std::int64_t>>> distance;
+        distance.resize(2 * w + 1);
+        for (unsigned int i = 0; i < 2 * w + 1; i++) {
+            distance[i].resize(2 * h + 1);
+            for (unsigned int j = 0; j < 2 * h + 1; j++) {
+                distance[i][j].first = 0.0;
+                distance[i][j].second = -1;
+            }
+        }
+
+        // 各画素ごとに見る
+        std::ofstream PUSAI("psi.txt");
+        std::ofstream ARUFA("alpha.txt");
+        std::ofstream ERU("l.txt");
+        for (int j = -1 * static_cast<int>(h); j <= static_cast<int>(h); j++) {
+            for (int i = -1 * static_cast<int>(w); i <= static_cast<int>(w); i++) {
+                std::array<real, 3> tau;
+                for (int k = 0; k < 3; k++)
+                    tau[k] = i * ex[k] + j * ey[k] + T[k];
+
+                // psi : 視線とOとの角度
+                real psi = atan2(std::sqrt(tau[0] * tau[0] + tau[2] * tau[2]), -tau[1]);
+                PUSAI << psi << " ";
+
+                unsigned int l;
+
+                bool flag = false;
+                // 使える角度内に tau があるか調べて，ワンちゃんあるなら flag = true にして返す
+                for (l = 0; l < phi.size() - 1; l++) {
+                    if (!omega[l] || !omega[l])
+                        continue;
+
+                    if (phi[l] < psi < phi[l + 1]) {
+                        flag = true;
+                        break;
+                    }
+                }
+
+                // 場合によっちゃ強制的にMinkowski
+                if (minkow_flag)
+                    flag = false;
+
+                // 軌道をつかう
+                if (flag) {
+                    //std::cout << "    " << i << ", " << j << std::endl;
+                    // つかう l
+                    real rho = l;
+                    ERU << rho << " ";
+                    // ない分店
+                    real q = (psi - phi[l]) / (phi[l + 1] - phi[l]);
+                    // tau の角度
+                    real alpha = atan2(tau[2], tau[0]);
+                    ARUFA << alpha << " ";
+
+                    std::fstream F, G;
+                    F.open(files[rho]);
+                    G.open(files[rho + 1]);
+                    std::array<real, 3> p0;
+                    std::array<real, 3> p1;
+
+                    std::string strF, strG;
+                    p0 = O;
+                    real dist = 0.0;
+                    real lambda_f = lambda[rho];
+                    real lambda_g = lambda[rho + 1];
+                    //std::cout << "omega_f" << std::endl;
+                    //std::cout << " " << omega[rho] << std::endl;
+                    //std::cout << "omega_g" << std::endl;
+                    //std::cout << " " << omega[rho + 1] << std::endl;
+                    //std::cout << "rho" << std::endl;
+                    //std::cout << " " << rho << std::endl;
+                    //std::cout << "lambda-size" << std::endl;
+                    //std::cout << " " << lambda.size() << std::endl;
+                    //std::cout << "lambda_f" << std::endl;
+                    //std::cout << " " << lambda_f << std::endl;
+                    //std::cout << "lambda_g" << std::endl;
+                    //std::cout << " " << lambda_g << std::endl;
+                    //std::cout << "file_f" << std::endl;
+                    //std::cout << " " << files[rho] << std::endl;
+                    //std::cout << "file_g" << std::endl;
+                    //std::cout << " " << files[rho + 1] << std::endl;
+                    //std::cout << "sigma_f" << std::endl;
+                    //std::cout << " " << sigma[rho] << std::endl;
+                    //std::cout << "sigma_g" << std::endl;
+                    //std::cout << " " << sigma[rho + 1] << std::endl;
+
+                    for (std::int64_t I = 0; I < sigma[rho]; I++)
+                        std::getline(F, strF);
+                    for (std::int64_t I = 0; I < sigma[rho + 1]; I++)
+                        std::getline(G, strG);
+
+                    std::array<real, 3> kk_f = split<3>(strF, ',');
+                    std::array<real, 3> kk_g = split<3>(strG, ',');
+
+                    std::getline(F, strF);
+                    std::getline(G, strG);
+                    bool finished_flag = false;
+                    do {
+                        std::array<real, 3> kkk_f = split<3>(strF, ',');
+                        std::array<real, 3> kkk_g = split<3>(strG, ',');
+                    //std::cout << "kk_f" << std::endl;
+                    //std::cout << " " << kk_f[0] << std::endl;
+                    //std::cout << " " << kk_f[1] << std::endl;
+                    //std::cout << " " << kk_f[2] << std::endl;
+                    //std::cout << "kk_g" << std::endl;
+                    //std::cout << " " << kk_g[0] << std::endl;
+                    //std::cout << " " << kk_g[1] << std::endl;
+                    //std::cout << " " << kk_g[2] << std::endl;
+                        //std::cout << "kkk_f" << std::endl;
+                        //std::cout << " " << kkk_f[0] << std::endl;
+                        //std::cout << " " << kkk_f[1] << std::endl;
+                        //std::cout << " " << kkk_f[2] << std::endl;
+                        //std::cout << "kkk_g" << std::endl;
+                        //std::cout << " " << kkk_g[0] << std::endl;
+                        //std::cout << " " << kkk_g[1] << std::endl;
+                        //std::cout << " " << kkk_g[2] << std::endl;
+
+                        if (kkk_f[2] - lambda_f > max_lim)
+                            break;
+
+                        std::array<real, 3> inishie;
+                        std::array<real, 3> arata;
+                        real eta;
+
+                        // F のほうに近い
+                        inishie = kk_g;
+                        arata = kkk_g;
+
+                        while (kkk_f[2] - lambda_f > arata[2] - lambda_g && !finished_flag) {
+                            //std::cout << "        b" << i << ", " << j << std::endl;
+                            //std::cout << "            " << i << ", " << j << std::endl;
+                            //std::cout <<          strG << std::endl;
+                            if (!std::getline(G, strG))
+                                finished_flag = true;
+                            inishie = arata;
+                            arata = split<3>(strG, ',');
+                        }
+
+                        if (finished_flag)
+                            break;
+
+                        eta = (kkk_f[2] - inishie[2] - lambda_f + lambda_g) / (arata[2] - inishie[2]);
+
+                        kkk_g[0] = (arata[0] - inishie[0]) * eta + inishie[0];
+                        kkk_g[1] = (arata[1] - inishie[1]) * eta + inishie[1];
+                        kkk_g[2] = (arata[2] - inishie[2]) * eta + inishie[2];
+                        //std::cout << "arata" << std::endl;
+                        //std::cout << " " << arata[0] << std::endl;
+                        //std::cout << " " << arata[1] << std::endl;
+                        //std::cout << " " << arata[2] << std::endl;
+                        //std::cout << "inishie" << std::endl;
+                        //std::cout << " " << inishie[0] << std::endl;
+                        //std::cout << " " << inishie[1] << std::endl;
+                        //std::cout << " " << inishie[2] << std::endl;
+
+                        kk_f = kkk_f;
+                        //kk_g = arata; <- これを更新しちゃうとつぎも kk_g ~ kkk_g の範囲で探索できんくなるわ
+
+                        std::array<real, 2> uuu, uuuu;
+                        uuu[0] = std::cos(theta[rho]) * kkk_f[0] + std::sin(theta[rho]) * kkk_f[1];
+                        uuu[1] = -std::sin(theta[rho]) * kkk_f[0] + std::cos(theta[rho]) * kkk_f[1];
+                        uuuu[0] = std::cos(theta[rho + 1]) * kkk_g[0] + std::sin(theta[rho + 1]) * kkk_g[1];
+                        uuuu[1] = -std::sin(theta[rho + 1]) * kkk_g[0] + std::cos(theta[rho + 1]) * kkk_g[1];
+
+                        std::array<real, 2> ppp;
+                        ppp[0] = (1.0 - q) * uuu[0] + q * uuuu[0];
+                        ppp[1] = (1.0 - q) * uuu[1] + q * uuuu[1];
+                        //std::cout << "uuu" << std::endl;
+                        //std::cout << " " << uuu[0] << std::endl;
+                        //std::cout << " " << uuu[1] << std::endl;
+                        //std::cout << "uuuu" << std::endl;
+                        //std::cout << " " << uuuu[0] << std::endl;
+                        //std::cout << " " << uuuu[1] << std::endl;
+                        //std::cout << "q" << std::endl;
+                        //std::cout << " " << q << std::endl;
+                        //std::cout << "ppp" << std::endl;
+                        //std::cout << " " << ppp[0] << std::endl;
+                        //std::cout << " " << ppp[1] << std::endl;
+
+                        p1[0] = std::cos(alpha) * ppp[0];
+                        p1[1] = ppp[1];
+                        p1[2] = std::sin(alpha) * ppp[0];
+
+                        tau[0] = p1[0] - p0[0];
+                        tau[1] = p1[1] - p0[1];
+                        tau[2] = p1[2] - p0[2];
+                        dist += std::sqrt(tau[0] * tau[0] + tau[1] * tau[1] + tau[2] * tau[2]);
+                        //std::cout << "p0" << std::endl;
+                        //std::cout << " " << p0[0] << std::endl;
+                        //std::cout << " " << p0[1] << std::endl;
+                        //std::cout << " " << p0[2] << std::endl;
+                        //std::cout << "p1" << std::endl;
+                        //std::cout << " " << p1[0] << std::endl;
+                        //std::cout << " " << p1[1] << std::endl;
+                        //std::cout << " " << p1[2] << std::endl;
+                        //std::cout << "tau" << std::endl;
+                        //std::cout << " " << tau[0] << " -> " << tau[0] * tau[0] << std::endl;
+                        //std::cout << " " << tau[1] << " -> " << tau[1] * tau[1] << std::endl;
+                        //std::cout << " " << tau[2] << " -> " << tau[2] * tau[2] << std::endl;
+                        while (std::isnan(dist)) {
+                            dist += std::sqrt(tau[0] * tau[0] + tau[1] * tau[1] + tau[2] * tau[2]);
+                        }
+                        //ooo << std::endl;
+                        //std::cout << "dist : " << dist << std::endl;
+                                std::cout << "    " << i << ", " << j << " : " << std::endl;
+                        for (unsigned int k = 0; k < spheres.size(); k++) {
+                            real t = spheres[k].collide(tau, p0);
+
+                            if (0.0 <= t && t <= 1.0) {
+                                std::cout << "    " << i << ", " << j << " : " << t << ", " << k << ", " << dist << std::endl;
+                                std::cout << "    point : " << p0[0] << ", " << p0[1] << ", " <<p0[2] << std::endl;
+
+                                if (distance[i + w][j + h].second == -1
+                                        || dist < distance[i + w][j + h].first) {
+                                    std::cout << "dist : " << dist << std::endl;
+                                    distance[i + w][j + h].first = dist;
+                                    distance[i + w][j + h].second = k;
+                                }
+
+                                break;
+                            }
+                        }
+                        p0 = p1;
+
+                    } while (std::getline(F, strF));
+                    ///ooo.close();
+                    F.close();
+                    G.close();
+                }
+                // 軌道を使わない
+                else {
+                    ERU << 0 << " ";
+                    ARUFA << 0.0 << " ";
+                    for (unsigned int k = 0; k < spheres.size(); k++) {
+                        real t = spheres[k].collide(tau, O);
+
+                        if (t < 0.0)
+                            continue;
+
+                        real dist;
+                        std::array<real, 3> dd;
+                        dd[0] = tau[0] * t + O[0];
+                        dd[1] = tau[1] * t + O[1];
+                        dd[2] = tau[2] * t + O[2];
+                        std::cout << i << ", " << j << " : " << std::endl;
+                        std::cout << "point : " << dd[0] << ", " << dd[1] << ", " << dd[2] << std::endl;
+                        dist = std::sqrt(dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2]);
+
+                        if (distance[i + w][j + h].second == -1
+                                || dist < distance[i + w][j + h].first) {
+                            distance[i + w][j + h].first = dist;
+                            distance[i + w][j + h].second = k;
+                        }
+
+                        break;
+                    }
+                }
+
+            }
+            PUSAI << std::endl;
+            ERU << std::endl;
+            ARUFA << std::endl;
+        }
+
+        std::string name;
+        if (minkow_flag)
+            name = "e-m.pgm";
+        else
+            name = "e-s.pgm";
+        std::ofstream of(name);
+        of << "P2" << std::endl;
+        of << distance.size() << " " << distance[0].size() << std::endl;
+        of << spheres.size() << std::endl;
+        for (unsigned int j = 0; j < distance[0].size(); j++) {
+            for (unsigned int i = 0; i < distance.size(); i++) {
+                if (i != 0)
+                    of << " ";
+
+                if (distance[i][j].second == -1)
+                    of << 0;
+                else
+                    of << spheres[distance[i][j].second].li;
+            }
+            of << std::endl;
+        }
+        of.close();
+    }
+
+    return 0;
+}
+

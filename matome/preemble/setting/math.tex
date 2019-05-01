@@ -1,0 +1,10 @@
+%------------------------------------------------------------------------
+% 数式番号を(章.節.節ごとの数式番号)に変更
+%------------------------------------------------------------------------
+\makeatletter
+    \renewcommand{\theequation} {%
+        %\arabic{chapter}.\arabic{section}.\arabic{equation}}
+        \arabic{section}.\arabic{equation}}
+    \@addtoreset{equation}{section}
+\makeatother
+

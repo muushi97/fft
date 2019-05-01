@@ -1,0 +1,234 @@
+\documentclass[uplatex, 11pt, a4j, dvipdfmx]{jsarticle}
+
+%------------------------------------------------------------------------
+% プリアンブル読み込み
+%------------------------------------------------------------------------
+\input{./preemble/all.tex}
+%------------------------------------------------------------------------
+% ちょっとした設定等
+%------------------------------------------------------------------------
+%\setlength{\columnsep}{3zw}
+%\setcounter{tocdepth}{3}                       % 目次を \subsection まで表示
+
+
+% -----------------------------------------------------------------------
+% 本文
+% -----------------------------------------------------------------------
+\begin{document}
+
+\section{introduction}
+    ネットでFFTを調べてみると，バタフライ演算を使うという説明とその図解をよく見る気がします。
+    しかし，もとのDFTの式から変形してFFTの式を導出しているようなサイトは見つかりませんでした(調査不足かもしれない)。
+
+    というわけで，自分なりに式変形してDFTの式からFFT(データ数が2の累乗数の場合)の式の導出をしてみたので，まとめとしてこの記事を書きます
+
+    ほかに参考文献らしいものがないので間違ってる可能性も十分にあります。
+
+\section{FFTとは}
+    FFTとは Fast Fourier Transform の略で，離散フーリエ変換を計算機上で高速に計算するアルゴリズムのことを言います。
+    離散フーリエ変換は本来信号処理分野で使われるものですが，どうやら多倍長演算の積の計算アルゴリズムなどにも使われてたりするようです。
+
+\section{離散フーリ変換(Discrete Fourier Transfotm)}
+    離散フーリエ変換はフーリエ変換を離散化したもので，周波数解析などでよくつかわれます。
+    順変換は，虚数単位$i$\footnote{信号処理の分野では慣例から虚数単位に$j$を用いることがあるが，今回は$i$を用いる}，データ数$N$，ネイピア数$e$，円周率$\pi$を用いて
+    \begin{equation}
+        F(x) = \sum_{t=0}^{N-1} f(t) e^{-i \frac{2 \pi tx}{N}} \label{eq:dft}
+    \end{equation}
+    と定義され，逆変換は
+    \begin{equation}
+        f(t) = \frac{1}{N} \sum_{x=0}^{N-1} F(x) e^{i \frac{2 \pi xt}{N}} \label{eq:idft}
+    \end{equation}
+    と定義されます。
+
+    この式のまま愚直にプログラムを書くと，計算量は$O(N^2)$となり，非常に遅いプログラムになってしまいます。
+    現在，離散フーリエ変換は通信や音声解析など幅広い分野で利用されていますが，計算に時間がかかるのでは意味がありません。
+    そこで，高速に離散フーリエ変換が計算できるアルゴリズムが意味を持ってくるわけです。
+
+\section{Cooley-Tukey型アルゴリズム}
+    今回は，いくつかあるらしいFFTのアルゴリズムのうち，Cooley-Tukey型と言われるアルゴリズムに従って式を変形していきます。
+
+    まず，計算を簡略化するために離散フーリエ変換(以下，DFTと書く)の式\eqref{eq:dft}，\eqref{eq:idft}を$0$以上の整数$t, x, k$を用いて
+    \begin{equation}
+        \left\{ \begin{aligned}
+            F(t) &= \sum_{x=0}^{N-1} f(x) w^{tx}_{N} \\
+            f(x) &= \frac{1}{N} \sum_{t=0}^{N-1} F(t) w^{-xt}_{N}
+        \end{aligned} \right. \qquad (0 \le t, x < N = 2^k) \label{eq:dft-by-w}
+    \end{equation}
+    と書き換えます。
+    ここで，
+    \begin{equation}
+        w^{a}_{N} = e^{-i \frac{2 \pi a}{N}} \label{eq:e-to-w}
+    \end{equation}
+    としました。
+    このとき$w_{N}$は
+    \begin{equation}
+        \begin{aligned}
+            w^{a + \frac{N}{2}}_{N} &= -w^{a}_{N} \\
+            w^{a + N}_{N} &= w^{a}_{N}
+        \end{aligned} \label{eq:feature-of-w}
+    \end{equation}
+    という特徴を持ちます。
+
+    \subsection{順変換}
+    まず，データ数$N$の順変換について考えます。
+    式\eqref{eq:dft-by-w}の順変換の式を変形すると
+    \begin{align}
+        F(x) &= \sum_{t=0}^{\frac{N}{2}-1} { \left[ f(2t) w^{2t \cdot x}_{N} + f(2t + 1) w^{(2t + 1) \cdot x}_{N} \right] } \\
+        \rightleftharpoons
+        F(x) &= \sum_{t=0}^{\frac{N}{2}-1} { f(2t) w^{tx}_{\frac{N}{2}} } +  w^{x}_{N} \sum_{x=0}^{\frac{N}{2}-1} { f(2t + 1) w^{tx}_{\frac{N}{2}} }
+    \end{align}
+    と書くことができ，$x$が$0 \le x < \frac{N}{2}$であるような整数だとすると$F(x)$は
+    \begin{align}
+            F(x)               &= \sum_{t=0}^{\frac{N}{2}-1} { f(2t) w^{tx}_{\frac{N}{2}} }
+                                + w^{x}_{N} \sum_{t=0}^{\frac{N}{2}-1} { f(2t + 1) w^{tx}_{\frac{N}{2}} }
+                                \label{eq:F1} \\
+            F(x + \frac{N}{2}) &= \sum_{t=0}^{\frac{N}{2}-1} { f(2t) w^{t\left(x + \frac{N}{2}\right)}_{\frac{N}{2}} }
+                                + w^{x + \frac{N}{2}}_{N} \sum_{t=0}^{\frac{N}{2}-1} { f(2t + 1) w^{t\left(x + \frac{N}{2}\right)}_{\frac{N}{2}} }
+                                \label{eq:F2}
+    \end{align}
+    という2つの式で表すことができます。
+    式\eqref{eq:F2}は$w_{N}$と$w_{\frac{N}{2}}$の性質\eqref{eq:feature-of-w}を考えると
+    \begin{equation}
+        F(x + \frac{N}{2}) = \sum_{t=0}^{\frac{N}{2}-1} { f(2t) w^{tx}_{\frac{N}{2}} } -  w^{x}_{N} \sum_{t=0}^{\frac{N}{2}-1} { f(2t + 1) w^{tx}_{\frac{N}{2}} }
+    \end{equation}
+    と書くことができるため，式\eqref{eq:F1}，\eqref{eq:F2}はそれぞれ
+    \begin{equation}
+        \left\{ \begin{aligned}
+            F(x)               &= \sum_{t=0}^{\frac{N}{2}-1} { f(2t) w^{tx}_{\frac{N}{2}} } + w^{x}_{N} \sum_{t=0}^{\frac{N}{2}-1} { f(2t + 1) w^{tx}_{\frac{N}{2}} } \\
+            F(x + \frac{N}{2}) &= \sum_{t=0}^{\frac{N}{2}-1} { f(2t) w^{tx}_{\frac{N}{2}} } -  w^{x}_{N} \sum_{t=0}^{\frac{N}{2}-1} { f(2t + 1) w^{tx}_{\frac{N}{2}} }
+        \end{aligned} \right. \qquad (0 \le x < \frac{N}{2}) \label{eq:F_N'}
+    \end{equation}
+    と書くことができます。
+    ここで，関数$f_\frac{N}{2}(x)$を$C_2(a, b) = 2a + b$を用いて
+    \begin{equation}
+        f_{\frac{N}{2}}(x + \frac{N}{2}b_0) = \sum_{t=0}^{\frac{N}{2}-1} f(C_2(t, b_0)) w^{tx}_{\frac{N}{2}}
+                        \qquad (b_0 \in \{0, 1 \}, \quad 0 \le x < \frac{N}{2}) \label{eq:f_N2'}
+    \end{equation}
+    と定義します。
+    この関数$f_{\frac{N}{2}}(x)$を用いることで，式\eqref{eq:F_N'}は
+    \begin{equation}
+        \left\{ \begin{aligned}
+            F(x)               &= f_{\frac{N}{2}}(x) + w^{x}_{N} f_{\frac{N}{2}}(x + \frac{N}{2}) \\
+            F(x + \frac{N}{2}) &= f_{\frac{N}{2}}(x) - w^{x}_{N} f_{\frac{N}{2}}(x + \frac{N}{2})
+        \end{aligned} \right. \qquad (0 \le x < \frac{N}{2}) \label{eq:F_N}
+    \end{equation}
+    と書き換えることができます。
+
+    式\eqref{eq:f_N2'}はデータ数$\frac{N}{2}$のDFTになっていて，式\eqref{eq:F_N}は式\eqref{eq:f_N2'}の和になっています。
+    つまり，データ数$N$のDFTはデータ数$\frac{N}{2}$のDFTに分割することができたと言えるでしょう。
+
+    さらに，$f_\frac{N}{2}(x)$を分割することを考えます。
+    式\eqref{eq:F_N'}と同様に考えると，式\eqref{eq:f_N2'}は
+    \begin{equation}
+        \left\{ \begin{aligned}
+            f_{\frac{N}{2}}(x + \frac{N}{2}b_0)               &= \sum_{t=0}^{\frac{N}{4}-1} f(2 C_2(2t, b_0)) w^{tx}_{\frac{N}{4}}
+                                                                + w^x_{\frac{N}{2}} \sum_{t=0}^{\frac{N}{4}-1} f(2 C_2(t, b_0) + 1) w^{tx}_{\frac{N}{4}} \\
+            f_{\frac{N}{2}}(x + \frac{N}{2}b_0 + \frac{N}{4}) &= \sum_{t=0}^{\frac{N}{4}-1} f(2 C_2(2t, b_0)) w^{tx}_{\frac{N}{4}}
+                                                                - w^x_{\frac{N}{2}} \sum_{t=0}^{\frac{N}{4}-1} f(2 C_2(t, b_0) + 1) w^{tx}_{\frac{N}{4}} \\
+        \end{aligned} \right. \qquad (b_0 \in \{0, 1 \}, \quad 0 \le x < \frac{N}{4}) \label{eq:f_N2''}
+    \end{equation}
+    と書くことができ，$f_{\frac{N}{4}}(x)$を
+    \begin{equation}
+        f_{\frac{N}{4}}(x + \frac{N}{2}b_0 + \frac{N}{4}b_1) = \sum_{t=0}^{\frac{N}{4}-1} f(C_2(C_2(t, b_1), b_0)) w^{tx}_{\frac{N}{4}}
+                        \qquad (b_0, b_1 \in \{0, 1 \}, \quad 0 \le x < \frac{N}{4}) \label{eq:f_N4'}
+    \end{equation}
+    とすれば，\eqref{eq:f_N2''}は
+    \begin{equation}
+        \left\{ \begin{aligned}
+            f_{\frac{N}{2}}(x + \frac{N}{2}b_0)               &= f_{\frac{N}{4}}(x + \frac{N}{2}b_0) + w^x_{\frac{N}{2}} f_{\frac{N}{4}}(x + \frac{N}{2}b_0 + \frac{N}{4}) \\
+            f_{\frac{N}{2}}(x + \frac{N}{2}b_0 + \frac{N}{4}) &= f_{\frac{N}{4}}(x + \frac{N}{2}b_0) - w^x_{\frac{N}{2}} f_{\frac{N}{4}}(x + \frac{N}{2}b_0 + \frac{N}{4})
+        \end{aligned} \right. \qquad (0 \le x < \frac{N}{2}) \label{eq:f_N2}
+    \end{equation}
+    と書くことができます。
+    以上のように，データ数$N$のDFTの順変換によって得られる$F(x)$は$f_{\frac{N}{2}}(x)$によって表すことができ，$f_{\frac{N}{2}}(x)$は$f_{\frac{N}{4}}(x)$によって
+    表すことができることがわかりました。
+
+    以上の式から，データ数$N$のDFTの順変換によって得られる$F(x)$は式\eqref{eq:f_N2}，\eqref{eq:f_N4'}から，$0 < l < k$に対して，
+    \begin{equation}
+        \left\{ \begin{aligned}
+            F(x)               &= f_{\frac{N}{2^1}}(x) + w^x_{N} f_{\frac{N}{2^1}}(x + \frac{N}{2}) \\
+            F(x + \frac{N}{2}) &= f_{\frac{N}{2^1}}(x) - w^x_{N} f_{\frac{N}{2^1}}(x + \frac{N}{2})
+        \end{aligned} \right. \qquad (0 \le x < \frac{N}{2}) \label{eq:F=f_N}
+    \end{equation}
+    \begin{equation}
+        \left\{ \begin{aligned}
+            f_{\frac{N}{2^l}}(x + \frac{N}{2^{l+1}}(2^{l}b_0 + ... + 2b_{l-1}))
+                    &= f_{\frac{N}{2^{l+1}}}(x + \frac{N}{2^{l+1}}(2^{l}b_0 + ... + 2b_{l-1}))
+                     + w^x_{\frac{N}{2^l}} f_{\frac{N}{2^{l+1}}}(x + \frac{N}{2^{l+1}}(2^{l}b_0 + ... + 2b_{l-1} + 1)) \\
+            f_{\frac{N}{2^l}}(x + \frac{N}{2^{l+1}}(2^{l}b_0 + ... + 2b_{l-1} + 1))
+                    &= f_{\frac{N}{2^{l+1}}}(x + \frac{N}{2^{l+1}}(2^{l}b_0 + ... + 2b_{l-1}))
+                     - w^x_{\frac{N}{2^l}} f_{\frac{N}{2^{l+1}}}(x + \frac{N}{2^{l+1}}(2^{l}b_0 + ... + 2b_{l-1} + 1))
+        \end{aligned} \right. \qquad (0 \le x < \frac{N}{2^l}) \label{eq:f_Nl}
+    \end{equation}
+    であり，$l = k$に対しては
+    \begin{equation}
+        f_{\frac{N}{2^k}}(2^kb_0 + ... + b_k) = f(C_2(...C_2(b_k, b_{k-1})..., b_0)) \label{eq:f_Nk}
+    \end{equation}
+    と書くことができる考えられます。
+    このとき，$b_0, b_1, ... , b_k \in \{0, 1\}$です。
+
+    式\eqref{eq:F=f_N}，\eqref{eq:f_Nl}，\eqref{eq:f_Nk}が正しいかどうかを帰納法によって確認していきます。
+    まず，$N=2^1$の場合を考えます。
+    このとき，DFTの式\eqref{eq:dft-by-w}は
+    \begin{align}
+        F(x) &= \sum_{t=0}^{1} f(t) w^{tx}_{2} \\
+        \rightleftharpoons
+        F(x) &= f(0) + w^{x}_{2} f(1) \qquad (x, t = 0,1)
+    \end{align}
+    となります。
+    式\eqref{eq:f_Nk}から$f_{\frac{N}{2^1}}$は
+    \begin{equation}
+        f_{\frac{N}{2^1}}(b_0) = f(b_0)
+    \end{equation}
+    となると考えられます。
+    さらに，式\eqref{eq:F=f_N}から$F(x)$は
+    \begin{equation}
+        \left\{ \begin{aligned}
+            F(0) &= f_{\frac{N}{2^{1}}}(0) + w^x_{\frac{N}{2^1}} f_{\frac{N}{2^{1}}}(1) \\
+            F(1) &= f_{\frac{N}{2^{1}}}(0) - w^x_{\frac{N}{2^1}} f_{\frac{N}{2^{1}}}(1) \\
+        \end{aligned} \right.
+    \end{equation}
+    となり，$N=2^1$のときは仮説とDFTの式が一致することが確認できました。
+
+    次に，$N=2^k$のときにも成立すると仮定して$N'=2^{k+1}$の場合を考えます。
+    データ数$N'$のDFTは式\eqref{eq:dft-by-w}より
+    \begin{equation}
+        F(x) = \sum_{t=0}^{N'-1} f(t) w^{tx}_{N'}
+    \end{equation}
+    と書けます。
+    この式を分割すると
+    \begin{align}
+        F(x)     &= \sum_{t=0}^{N-1} { f(2t) w^{tx}_{N} } +  w^{x}_{N'} \sum_{x=0}^{N-1} { f(2t + 1) w^{tx}_{N} } \\
+        F(x + N) &= \sum_{t=0}^{N-1} { f(2t) w^{tx}_{N} } -  w^{x}_{N'} \sum_{x=0}^{N-1} { f(2t + 1) w^{tx}_{N} }
+    \end{align}
+    となります。
+    ここで，$f'(t) = f(2t)$，$f''(t) = f(2t + 1)$とし，$f'(t)$をDFTしたものを$f'_N(x)$，$f''(t)$をDFTしたものを$f''_N(x)$とすれば，$F(x)$をデータ数$N$のDFTの和として書くことができます。
+    データ数$N$のDFTを式\eqref{eq:F=f_N}によって書き換えると
+    \begin{align}
+        F(x)     &= f'_N(x) +  w^{x}_{N'} f''_N(x) \\
+        F(x + N) &= f'_N(x) -  w^{x}_{N'} f''_N(x)
+    \end{align}
+    とできます。
+    このとき，$f'_N(x)$はデータ数$N$のDFTの結果なので仮定より式\eqref{eq:f_Nl}と式\eqref{eq:f_Nk}によって表すことができます。
+    $f'(t) = f(2t)$と置き換えたことを考えると$f'_{\frac{N}{2^k}}(x)$は
+    \begin{align}
+        f'_{\frac{N}{2^k}}(2^kb_0 + ... + b_k) &= f'(C_2(...C_2(b_k, b_{k-1})..., b_0)) \\
+        \rightleftharpoons
+        f'_{\frac{N}{2^k}}(2^kb_0 + ... + b_k) &= f(2 C_2(...C_2(b_k, b_{k-1})..., b_0))
+    \end{align}
+    と書くことができます。
+    同様に，$f''_{\frac{N}{2^k}}$も
+    \begin{equation}
+        f''_{\frac{N}{2^k}}(2^kb_0 + ... + b_k) = f(2 C_2(...C_2(b_k, b_{k-1})..., b_0) + 1)
+    \end{equation}
+    ....
+
+
+    \subsection{逆変換}
+    逆変換の式は
+    ....
+
+
+
+\end{document}
+

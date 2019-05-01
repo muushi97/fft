@@ -1,0 +1,27 @@
+%------------------------------------------------------------------------
+% パッケージ読み込み
+%------------------------------------------------------------------------
+\usepackage{titlesec}                   % セクションとかのサイズ変更
+\usepackage{tabularx}                   % 表
+\usepackage{here}                       % 画像をこ↑こ↓に表示する
+\usepackage[dvipdfmx]{graphicx}         % 画像表示
+\usepackage[dvipsnames,svgnames,x11names,dvipdfmx,table,xcdraw]{xcolor}     % what's ?
+\usepackage{url}                        % 参考文献にURL
+%\usepackage[pass]{geometry}             % ジオメトリの設定はしない[pass]で，geometryパッケージが持つ出力用紙サイズの設定機能のみを利用する(なんかdvipdfmxだとまずいらしい)
+\usepackage{listings, jlisting}         % ソースコード表示用
+\usepackage[uplatex]{otf}               % 欧文フォントの書式を変えたときに連動して和文フォントの書式も変わるように
+\usepackage[T1]{fontenc}                % フォントエンコードをT1(8bit)に変える
+\usepackage{lmodern}                    % 欧文フォントをデフォのCMから，CMの完全上位互換のLatin Modernフォントにする
+\usepackage{fix-cm}                     % デフォの欧文フォントのサイズ設定時に強制的に定義済みの別の値に丸められる問題の解決のため
+\usepackage{exscale}                    % 大型演算子(総和とか総乗とかインテグラルとか)のサイズがどんなときも一定なの対策
+
+\usepackage{amsmath, amssymb}           % 数式系
+\usepackage{diffcoeff}                  % 微分がきれいにかけるって
+\usepackage{newtxmath, newtxtext}       % 数式フォント, 欧文フォント
+%\usepackage{newpxmath, newpxtext}       % 数式フォント, 欧文フォント
+\usepackage{bm}                         % 太字
+\usepackage{mathtools}                  % \mathtoolsset{showonlyrefs=true} で参照した数式のみに数式番号をつける (cleveref) と共存できない
+\mathtoolsset{showonlyrefs=true}
+
+\usepackage{siunitx}                    % SI単位系の出力
+

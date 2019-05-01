@@ -1,0 +1,121 @@
+FFT
+
+クーリー - テューキー型といわれるらしいFFTアルゴリズムを(データ数が2の累乗数の場合に限り)実装したので，自分なりまとめておきます。
+あくまで自分で考えたものをまとめただけなので，間違っている可能性もあります。
+
+FFTとは
+    FFTとは Fast Fourier Transform の略で，離散フーリエ変換を計算機上で高速に計算するアルゴリズムのことを言います。
+    離散フーリエ変換は，本来信号処理分野で使われるものですが，どうやら多倍長演算の積の計算アルゴリズムにも使われてたりするようです。
+
+
+離散フーリエ変換
+    離散フーリエ変換はフーリエ変換を離散化したものであり，周波数解析などでよくつかわれる。
+    順変換は，虚数単位i(信号処理の分野では慣例から虚数単位にjを用いることがあるが，今回はiを用いる)，サンプル数(データの長さ)N，ネイピア数e，円周率\piを用いて
+    F(t) = \sum_{x=0}^{N-1} f(x) e^{-i \frac{2 \pi tx}{N}}
+    と定義される。
+    逆変換は
+    f(t) = \frac{1}{N} \sum_{t=0}^{N-1} F(t) e^{i \frac{2 \pi xt}{N}}
+    と定義される。
+
+
+クーリー - テューキー型アルゴリズム
+    まず，式を簡略化するために離散フーリエ変換(以下，DFTと書く)の式を
+        F(t) = \sum_{x=0}^{N-1} f(x) w^{tx}_{N}}
+        f(t) = \frac{1}{N} \sum_{t=0}^{N-1} F(t) w^{-xt}_{N}}
+    と書き換えます。ここで，
+        w^{a}_{N} = e^{-i \frac{2 \pi a}{N}}
+    としました。
+
+    このときw_{N}は
+        w^{a + \frac{2}{N}}_{N} = -w^{a}_{N}
+        w^{a + N}_{N} = w^{a}_{N}
+    という性質を持ちます。
+
+    まずデータ数Nの順変換について考えます。
+    順変換の式を
+        F(t) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{t \cdot 2x}_{N} + f(2x + 1) w^{t \cdot (2x + 1)}_{N} }
+        F(t) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{2tx}_{N} + f(2x + 1) w^{2tx + t}_{N} }
+    と書き換えます。
+    ここでw_{N}の性質から上式は
+        F(t) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{2tx}_{N} + f(2x + 1) w^{2tx + t}_{N} }
+        F(t) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{2tx}_{N} } +  \sum_{x=0}^{\frac{N}{2}-1} { f(2x + 1) w^{2tx + t}_{N} }
+        F(t) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{2tx}_{N} } +  w^{t}_{N} \sum_{x=0}^{\frac{N}{2}-1} { f(2x + 1) w^{2tx}_{N} }
+        F(t) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{tx}_{\frac{N}{2}} } +  w^{t}_{N} \sum_{x=0}^{\frac{N}{2}-1} { f(2x + 1) w^{tx}_{\frac{N}{2}} }
+    となります。
+    さらに，t の取りうる範囲を [0, N) から [0, \frac{N}{2}) とすると上式は
+        F(t) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{tx}_{\frac{N}{2}} } +  w^{t}_{N} \sum_{x=0}^{\frac{N}{2}-1} { f(2x + 1) w^{tx}_{\frac{N}{2}} }
+        F(t + \frac{N}{2}) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{(t + \frac{N}{2})x}_{\frac{N}{2}} } +  w^{(t + \frac{N}{2})}_{N} \sum_{x=0}^{\frac{N}{2}-1} { f(2x + 1) w^{(t + \frac{N}{2})x}_{\frac{N}{2}} }
+    という2つの式で表すことができ，下の式はw_{N}とw_{\frac{N}{2}}の性質を考えると
+        F(t + \frac{N}{2}) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{tx}_{\frac{N}{2}} } -  w^{t}_{N} \sum_{x=0}^{\frac{N}{2}-1} { f(2x + 1) w^{tx}_{\frac{N}{2}} }
+    と書くことができる。
+    最終的にはデータ数 N のDFTを
+        F(t)               = f_{\frac{N}{2}}(t) +  w^{t}_{N} f_{\frac{N}{2}}(t + \frac{N}{2})
+        F(t + \frac{N}{2}) = f_{\frac{N}{2}}(t) -  w^{t}_{N} f_{\frac{N}{2}}(t + \frac{N}{2})
+    とすると，データ数 \frac{N}{2} のDFTふたつと，その和(差)に書き換えることができます。
+    このとき f_{N} は t を [0, \frac{N}{2}) とし，
+        f_{\frac{N}{2}}(t)               = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{tx}_{\frac{N}{2}} }
+        f_{\frac{N}{2}}(t + \frac{N}{2}) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x + 1) w^{tx}_{\frac{N}{2}} }
+    とした。
+    以上から，データ数NのDFTを1回2分割した場合の式は
+        {
+            F(t)               = f_{\frac{N}{2}}(t) +  w^{t}_{N} f_{\frac{N}{2}}(t + \frac{N}{2})
+            F(t + \frac{N}{2}) = f_{\frac{N}{2}}(t) -  w^{t}_{N} f_{\frac{N}{2}}(t + \frac{N}{2})
+        {
+            f_{\frac{N}{2}}(t)               = \sum_{x=0}^{\frac{N}{2}-1} { f(2x) w^{tx}_{\frac{N}{2}} }
+            f_{\frac{N}{2}}(t + \frac{N}{2}) = \sum_{x=0}^{\frac{N}{2}-1} { f(2x + 1) w^{tx}_{\frac{N}{2}} }
+    となる。
+
+    ここで，さらにデータ数を分割することを考えます。
+    f_{\frac{N}{2}} の式を
+        f'_e(x) = f(2x)
+        f'_o(x) = f(2x + 1)
+    を用いて
+        {
+            f_{\frac{N}{2}}(t)               = \sum_{x=0}^{\frac{N}{2}-1} { f'_e(x) w^{tx}_{\frac{N}{2}} }
+            f_{\frac{N}{2}}(t + \frac{N}{2}) = \sum_{x=0}^{\frac{N}{2}-1} { f'_o(x) w^{tx}_{\frac{N}{2}} }
+    とすると，それぞれ
+        {
+            f_{\frac{N}{2}}(t)                = f_{\frac{N}{3}}(t) + w^{t}_{\frac{N}{2}} f_{\frac{N}{4}}(t + \frac{N}{4})
+            f_{\frac{N}{2}}(t + \frac{N}{4})  = f_{\frac{N}{3}}(t) - w^{t}_{\frac{N}{2}} f_{\frac{N}{4}}(t + \frac{N}{4})
+            f_{\frac{N}{2}}(t + \frac{2N}{4}) = f_{\frac{N}{3}}(t + \frac{2N}{4}) + w^{t}_{\frac{N}{2}} f_{\frac{N}{4}}(t + \frac{2N}{4})
+            f_{\frac{N}{2}}(t + \frac{3N}{4}) = f_{\frac{N}{3}}(t + \frac{2N}{4}) - w^{t}_{\frac{N}{2}} f_{\frac{N}{4}}(t + \frac{2N}{4})
+
+        {
+            f_{\frac{N}{4}}(t)                = \sum_{x=0}^{\frac{N}{4}-1} { f'_e(2x) w^{tx}_{\frac{N}{4}} }
+            f_{\frac{N}{4}}(t + \frac{ N}{4}) = \sum_{x=0}^{\frac{N}{4}-1} { f'_e(2x + 1) w^{tx}_{\frac{N}{4}} }
+            f_{\frac{N}{4}}(t + \frac{2N}{4}) = \sum_{x=0}^{\frac{N}{4}-1} { f'_o(2x) w^{tx}_{\frac{N}{4}} }
+            f_{\frac{N}{4}}(t + \frac{3N}{4}) = \sum_{x=0}^{\frac{N}{4}-1} { f'_o(2x + 1) w^{tx}_{\frac{N}{4}} }
+    とかくことができる。
+    このとき，f'_eとf'_oをfに置き換えると，
+        {
+            f_{\frac{N}{4}}(t)                = \sum_{x=0}^{\frac{N}{4}-1} { f(4x) w^{tx}_{\frac{N}{4}} }
+            f_{\frac{N}{4}}(t + \frac{ N}{4}) = \sum_{x=0}^{\frac{N}{4}-1} { f(4x + 2) w^{tx}_{\frac{N}{4}} }
+            f_{\frac{N}{4}}(t + \frac{2N}{4}) = \sum_{x=0}^{\frac{N}{4}-1} { f(4x + 1) w^{tx}_{\frac{N}{4}} }
+            f_{\frac{N}{4}}(t + \frac{3N}{4}) = \sum_{x=0}^{\frac{N}{4}-1} { f(4x + 3) w^{tx}_{\frac{N}{4}} }
+    とかけるため，データ数NのDFTを2回2分割した場合の式は
+        {
+            F(t)               = f_{\frac{N}{2}}(t) +  w^{t}_{N} f_{\frac{N}{2}}(t + \frac{N}{2})
+            F(t + \frac{N}{2}) = f_{\frac{N}{2}}(t) -  w^{t}_{N} f_{\frac{N}{2}}(t + \frac{N}{2})
+
+        {
+            f_{\frac{N}{2}}(t)                = f_{\frac{N}{3}}(t) + w^{t}_{\frac{N}{2}} f_{\frac{N}{4}}(t + \frac{N}{4})
+            f_{\frac{N}{2}}(t + \frac{N}{4})  = f_{\frac{N}{3}}(t) - w^{t}_{\frac{N}{2}} f_{\frac{N}{4}}(t + \frac{N}{4})
+            f_{\frac{N}{2}}(t + \frac{2N}{4}) = f_{\frac{N}{3}}(t + \frac{2N}{4}) + w^{t}_{\frac{N}{2}} f_{\frac{N}{4}}(t + \frac{2N}{4})
+            f_{\frac{N}{2}}(t + \frac{3N}{4}) = f_{\frac{N}{3}}(t + \frac{2N}{4}) - w^{t}_{\frac{N}{2}} f_{\frac{N}{4}}(t + \frac{2N}{4})
+
+        {
+            f_{\frac{N}{4}}(t)                = \sum_{x=0}^{\frac{N}{4}-1} { f(4x) w^{tx}_{\frac{N}{4}} }
+            f_{\frac{N}{4}}(t + \frac{ N}{4}) = \sum_{x=0}^{\frac{N}{4}-1} { f(4x + 2) w^{tx}_{\frac{N}{4}} }
+            f_{\frac{N}{4}}(t + \frac{2N}{4}) = \sum_{x=0}^{\frac{N}{4}-1} { f(4x + 1) w^{tx}_{\frac{N}{4}} }
+            f_{\frac{N}{4}}(t + \frac{3N}{4}) = \sum_{x=0}^{\frac{N}{4}-1} { f(4x + 3) w^{tx}_{\frac{N}{4}} }
+    となる。
+
+    ここで，
+
+
+
+
+
+
+
+
