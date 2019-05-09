@@ -63,7 +63,7 @@ std::vector<comp> fft(const std::vector<comp> &f) {
 
     std::vector<comp> w(N / 2);
     for (int x = 0; x < w.size(); x++)
-        w[x] = std::exp(comp(0.0, 2.0 * pi * x / N));
+        w[x] = std::exp(comp(0.0, -2.0 * pi * x / N));
 
     for (int x = 0; x < N; x++)
         F[x] = f[bit_invert(x, k)];
@@ -95,7 +95,7 @@ std::vector<comp> ifft(const std::vector<comp> &F) {
 
     std::vector<comp> w(N / 2);
     for (int t = 0; t < w.size(); t++)
-        w[t] = std::exp(comp(0.0, -2.0 * pi * t / N));
+        w[t] = std::exp(comp(0.0, 2.0 * pi * t / N));
 
     for (int t = 0; t < N; t++)
         f[t] = F[bit_invert(t, k)];
@@ -139,7 +139,7 @@ int main() {
     //F = idft(F);
 
     F = fft(F);
-    F = ifft(F);
+    //F = ifft(F);
 
 
     for (int i = 0; i < F.size(); i++)
